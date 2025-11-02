@@ -22,6 +22,10 @@ class AgentManager:
             raise FileExistsError(f"Agent {name} already exists")
         agent_path.mkdir(parents=True)
 
+        # ensure packages exist for import path agents.<name>.main
+        (self.agents_dir / "__init__.py").write_text("", encoding="utf-8")
+        (agent_path / "__init__.py").write_text("", encoding="utf-8")
+
         # copy template main
         tpl_file = self.templates_dir / ("api_main.py" if agent_type == "api" else "mcp_main.py")
         if not tpl_file.exists():

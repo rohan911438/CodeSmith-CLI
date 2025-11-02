@@ -1,0 +1,7 @@
+{
+  "name": "apitest",
+  "type": "api",
+  "description": "API test",
+  "model": "gemini-placeholder",
+  "path": "C:\\Users\\ABHINAV KUMAR\\Desktop\\CLI\\agents\\apitest"
+}
