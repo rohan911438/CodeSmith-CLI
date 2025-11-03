@@ -14,6 +14,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 from dotenv import load_dotenv
+import re
+import difflib
 
 from core.llm_client import LLMClient
 
@@ -48,6 +50,25 @@ RUNTIME = Runtime(registry=REG)
 
 # Load environment variables from .env if present
 load_dotenv()
+
+
+def _matches_explain_intent(text: str) -> bool:
+    """Return True if the prompt intends to 'explain' files/readme, tolerating typos.
+
+    Accepts synonyms and fuzzy matches for the word 'explain'.
+    """
+    lower = (text or "").strip().lower()
+    keys = ("explain", "what are the files", "list files", "show files", "readme")
+    if any(k in lower for k in keys):
+        return True
+    # Fuzzy: token-level similarity to 'explain'
+    tokens = [t for t in re.split(r"\W+", lower) if t]
+    try:
+        if any(difflib.SequenceMatcher(None, t, "explain").ratio() >= 0.8 for t in tokens):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 @app.command()
@@ -211,9 +232,9 @@ def dev_run():
 
     plan = parse_intent(prompt)
     if not plan:
-        # Friendly fallback: summarize repository files when user asks to "explain".
+        # Friendly fallback: summarize repository files when user asks to "explain" (typos tolerated).
         lower = prompt.strip().lower()
-        if any(k in lower for k in ("explain", "what are the files", "list files", "show files", "readme")):
+        if _matches_explain_intent(lower):
             files = scan_repo(ROOT)
             total = len(files)
             from collections import Counter

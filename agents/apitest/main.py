@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from pathlib import Path
 from collections import Counter
 from core.workbench import scan_repo
+import re
+import difflib
 
 app = FastAPI()
 
@@ -30,7 +32,16 @@ async def chat(req: Request):
 
     # Natural repo summary on "explain" prompts for demo-friendly UX
     lower = (prompt or "").strip().lower()
-    if any(k in lower for k in ("explain", "what are the files", "list files", "show files")):
+    def _is_explain(text: str) -> bool:
+        keys = ("explain", "what are the files", "list files", "show files")
+        if any(k in text for k in keys):
+            return True
+        try:
+            tokens = [t for t in re.split(r"\W+", text) if t]
+            return any(difflib.SequenceMatcher(None, t, "explain").ratio() >= 0.8 for t in tokens)
+        except Exception:
+            return False
+    if _is_explain(lower):
         root = Path.cwd()
         files = scan_repo(root)
         total = len(files)

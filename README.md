@@ -8,17 +8,27 @@ Team: BROTHERHOOD
 - Rohan Kumar (@rohan911438)
 - Ritav PaUl
 
+---
+
 ## ✨ What is CodeSmith CLI?
 
-CodeSmith CLI is a developer tool that lets you generate, customize, and run AI agents locally in seconds. It’s “Gemini CLI meets Copilot” — but open, hackable, and infra-free.
+CodeSmith CLI is a developer tool that lets you generate, customize, and run AI agents locally in seconds. It’s “Gemini CLI meets Copilot” — but open, hackable, and infra‑free.
 
 You can:
 - Scaffold a new AI agent with one command
-- Run it locally as a FastAPI app or as an MCP-style JSON-RPC server
-- Chat with it from your terminal
+- Run it locally as a FastAPI app or as an MCP‑style JSON‑RPC service
+- Chat with it from your terminal or via HTTP
 - Compose multiple agents into simple chains
+- Use a safe dev mode to preview diffs and back up files before edits
 
-## 🚀 Demo in under 60 seconds
+Why this matters for Gemini Hack Day
+- Local‑first: demo without risky cloud dependencies; graceful echo fallback if keys/network are missing
+- Fast iteration: scaffold → run → chat in under a minute
+- Extensible: pluggable model providers, simple templates, clean Python
+
+---
+
+## 🚀 TL;DR (60s demo)
 
 Windows (cmd.exe):
 
@@ -28,16 +38,18 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 
 python main.py create codebuddy --type api --desc "Explains Python code" --model gemini-pro
-python main.py run codebuddy
+python main.py run codebuddy --port 8010
 ```
 
 In a new terminal:
 
 ```cmd
-python main.py chat --agent codebuddy
+python -c "import requests, json; print(json.dumps(requests.post('http://127.0.0.1:8010/chat', json={'prompt':'Hello'}).json(), indent=2))"
 ```
 
 You’ve just built and talked to your own Copilot.
+
+---
 
 ## 🎯 Demo for judges (one screen)
 
@@ -57,14 +69,235 @@ python main.py run apitest --port 8021
 python -c "import requests, json; r=requests.post('http://127.0.0.1:8021/chat', json={'prompt':'explain the files'}); print(json.dumps(r.json(), indent=2))"
 
 # 5) Optional: safe dev mode with pretty diffs/backups
-python main.py dev run  ^
-   && (type "replace 'Echo' with 'ECHO'" & echo.)
+python main.py dev run
+# When prompted: replace 'Echo' with 'ECHO'  (shows diff preview, then confirm)
 ```
 
 Talking points:
 - Local‑first: no Docker, works offline (echo fallback when no GEMINI_API_KEY)
 - Deterministic dev mode with diff previews and automatic backups
 - Both REST and MCP-style agents validated by tests
+
+---
+
+## 🔧 Installation & Setup
+
+Requirements
+- Python 3.11+ recommended
+- Windows (cmd.exe/PowerShell), macOS, or Linux
+
+Install (Windows cmd.exe)
+```cmd
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+```
+
+Optional: set up a Gemini API key
+1) Copy `.env.example` to `.env`
+2) Paste your key as `GEMINI_API_KEY=...`
+
+Alternatively, per shell:
+```cmd
+set GEMINI_API_KEY=YOUR_KEY
+```
+
+Verify your key (optional)
+```cmd
+python main.py llm list-models
+python main.py llm test "Explain recursion in Python" --model gemini-1.5-flash-latest
+```
+
+No key? No problem — agents gracefully fall back to local echo so your demo never crashes.
+
+---
+
+## 🧭 Core concepts
+
+- Agent: a small FastAPI (or MCP-like) service under `agents/<name>/` exposing `/chat` (REST) or `/rpc` (JSON-RPC style)
+- Registry: a local JSON file `.codesmith/registry.json` tracking your agents
+- Templates: minimal `api_main.py` and `mcp_main.py` blueprints that you can customize
+- Runtime: tiny wrapper that starts uvicorn in a subprocess
+- Dev mode: repo-aware helpers to preview diffs, back up files, and apply structured edits safely
+
+---
+
+## 🛠️ CLI commands (Typer)
+
+All commands are run via `python main.py` from the project root.
+
+Create an agent
+```cmd
+python main.py create codebuddy --type api --desc "Explains Python code" --model gemini-pro
+```
+
+List agents
+```cmd
+python main.py list
+```
+
+Run an agent (FastAPI server on http://127.0.0.1:8000)
+```cmd
+python main.py run codebuddy
+```
+
+Run on a specific port
+```cmd
+python main.py run codebuddy --port 8020
+```
+
+Chat with an agent (HTTP client fallback built in)
+```cmd
+python main.py chat --agent codebuddy --port 8020
+```
+
+Compose agents (simple chain)
+```cmd
+python main.py compose --agents a,b,c --name mychain
+```
+
+Delete an agent
+```cmd
+python main.py delete codebuddy
+```
+
+Gemini helpers
+```cmd
+python main.py llm list-models
+python main.py llm test "Explain recursion in Python" --model gemini-1.5-flash-latest
+```
+
+Dev mode (safe, repo-aware)
+```cmd
+python main.py dev run
+```
+Type: `replace 'foo' with 'bar'` and confirm after the diff preview. Backups are stored under `.codesmith/backups/<timestamp>`.
+
+Structured dev commands
+```cmd
+python main.py dev add-file new_folder\hello.txt --content "Hello world"
+python main.py dev move-file new_folder\hello.txt new_folder\notes\hello.txt
+python main.py dev edit-json package.json --set name="\"my-app\"" --delete deprecatedField
+python main.py dev edit-yaml config.yaml --set app.name="\"codesmith\""
+python main.py dev rollback .codesmith\backups\20251103-120215
+```
+
+---
+
+## 🧩 Templates & endpoints
+
+API template (`templates/api_main.py`)
+- Endpoint: `POST /chat` with `{ "prompt": "..." }`
+- Returns `{ "response": "..." }`
+- Judge-friendly enhancement: if the prompt includes “explain”, it returns a repo summary JSON
+
+MCP-style template (`templates/mcp_main.py`)
+- Endpoint: `POST /rpc` with `{ "method": "chat", "params": { "prompt": "..." } }`
+- Returns `{ "result": { "response": "..." } }`
+
+Example cURL
+```cmd
+curl -s -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"prompt\":\"Hello\"}"
+```
+
+---
+
+## 🏗️ Architecture overview
+
+```
+main.py                  # Typer CLI entrypoint
+core/
+   agent_manager.py       # scaffolding from templates + registry wiring
+   registry.py            # local JSON registry (.codesmith/registry.json)
+   runtime.py             # spawn uvicorn subprocess for an agent
+   workbench.py           # safe, deterministic repo edits (diff previews)
+   dev_actions.py         # add/move/edit JSON/YAML, backups & rollback
+   llm_client.py          # async Gemini client with graceful fallback
+templates/
+   api_main.py, mcp_main.py, requirements.txt
+agents/
+   <name>/main.py         # generated from a template
+tests/
+   run_endpoint_tests.py  # smoke tests for both templates
+```
+
+Design principles
+- Local-first, predictable behavior (no surprise network failures)
+- Minimal magic, small readable modules
+- Developer trust: visible diffs, backups, and reversibility
+
+---
+
+## 🧪 Testing
+
+Run the included endpoint tests (uses FastAPI’s TestClient):
+```cmd
+python tests\run_endpoint_tests.py
+```
+Expected:
+```
+PASS: test_api_agent
+PASS: test_mcp_agent
+
+All endpoint tests passed.
+```
+
+---
+
+## 🔐 Security & privacy
+
+- Keys are read from environment variables or `.env`; never hard‑coded
+- No keys are written back to disk; `.env.example` is provided for safe setup
+- Local-first by default; when a provider call fails, the app returns a benign echo so your session doesn’t crash
+
+---
+
+## 🩺 Troubleshooting
+
+Port already in use
+```cmd
+python main.py run apitest --port 8021
+```
+
+Kill stuck Python servers (Windows):
+```cmd
+taskkill /IM python.exe /F
+```
+
+Missing GEMINI_API_KEY
+- LLM helpers (`llm list-models`, `llm test`) will warn; agent endpoints still work via echo fallback
+
+Windows quoting when passing quotes inside commands
+- Use doubled quotes or escape sequences as shown in examples
+
+“Could not infer an action” in dev mode
+- Try the deterministic form: `replace 'old' with 'new'`
+
+---
+
+## 🗺️ Roadmap (post‑hackathon)
+
+- Per‑agent configurable ports + automatic port assignment
+- Richer compose (DAGs, branches, conditional flows)
+- First‑class tools (file ops, web search, code analysis)
+- Optional web dashboard for monitoring
+- Optional SQLite registry and richer metadata
+- More model providers and pluggable LLM backends
+- `pipx` packaging for a one‑line install
+
+---
+
+## 👥 Team
+
+BROTHERHOOD — Rohan Kumar and Ritav PaUl
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License — see [LICENSE](./LICENSE).
+
+Copyright (c) 2025 Rohan Kumar (@rohan911438)
 
 ## 📦 Features
 
