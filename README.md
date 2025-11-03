@@ -39,6 +39,33 @@ python main.py chat --agent codebuddy
 
 You’ve just built and talked to your own Copilot.
 
+## 🎯 Demo for judges (one screen)
+
+All commands are Windows cmd.exe, run from the project root.
+
+```cmd
+# 1) Install deps
+python -m pip install -r requirements.txt
+
+# 2) Prove both templates work (fast smoke tests)
+python tests\run_endpoint_tests.py
+
+# 3) Start the sample API agent (use a free port)
+python main.py run apitest --port 8021
+
+# 4) In a new terminal: show repo summary via the agent
+python -c "import requests, json; r=requests.post('http://127.0.0.1:8021/chat', json={'prompt':'explain the files'}); print(json.dumps(r.json(), indent=2))"
+
+# 5) Optional: safe dev mode with pretty diffs/backups
+python main.py dev run  ^
+   && (type "replace 'Echo' with 'ECHO'" & echo.)
+```
+
+Talking points:
+- Local‑first: no Docker, works offline (echo fallback when no GEMINI_API_KEY)
+- Deterministic dev mode with diff previews and automatic backups
+- Both REST and MCP-style agents validated by tests
+
 ## 📦 Features
 
 - Agent generation: `create <name> --type <api|mcp> --desc "..." --model <model>`

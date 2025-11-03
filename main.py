@@ -11,6 +11,8 @@ import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
+from rich import box
 from dotenv import load_dotenv
 
 from core.llm_client import LLMClient
@@ -211,7 +213,7 @@ def dev_run():
     if not plan:
         # Friendly fallback: summarize repository files when user asks to "explain".
         lower = prompt.strip().lower()
-        if any(k in lower for k in ("explain", "what are the files", "list files", "show files")):
+        if any(k in lower for k in ("explain", "what are the files", "list files", "show files", "readme")):
             files = scan_repo(ROOT)
             total = len(files)
             from collections import Counter
@@ -219,25 +221,84 @@ def dev_run():
             # Determine top-level directories
             top_dirs = Counter([(p.relative_to(ROOT).parts[0] if len(p.relative_to(ROOT).parts) > 1 else "<root>") for p in files])
 
-            console.rule("Repository summary")
-            console.print(f"[bold]Total files:[/] {total}")
-            if top_dirs:
-                console.print("[bold]Top-level dirs:[/]")
-                for name, cnt in top_dirs.most_common(10):
-                    console.print(f" - {name}: {cnt}")
-            if exts:
-                console.print("[bold]By extension:[/]")
-                for ext, cnt in exts.most_common(10):
-                    console.print(f" - {ext}: {cnt}")
-            # If registry is available, show agents
+            # Build pretty tables
+            dir_table = Table(title="Top-level dirs", box=box.SIMPLE_HEAVY)
+            dir_table.add_column("Dir", style="cyan", no_wrap=True)
+            dir_table.add_column("Count", style="magenta", justify="right")
+            for name, cnt in top_dirs.most_common(10):
+                dir_table.add_row(name, str(cnt))
+
+            ext_table = Table(title="By extension", box=box.SIMPLE_HEAVY)
+            ext_table.add_column("Ext", style="cyan", no_wrap=True)
+            ext_table.add_column("Count", style="magenta", justify="right")
+            for ext, cnt in exts.most_common(10):
+                ext_table.add_row(ext, str(cnt))
+
+            # Biggest files by size (top 10)
+            try:
+                sized = sorted([(p, p.stat().st_size) for p in files], key=lambda x: x[1], reverse=True)[:10]
+            except Exception:
+                sized = []
+            big_table = Table(title="Largest files", box=box.SIMPLE_HEAVY)
+            big_table.add_column("Path", style="green")
+            big_table.add_column("Size (KB)", style="yellow", justify="right")
+            for p, sz in sized:
+                rel = p.relative_to(ROOT)
+                kb = max(1, sz // 1024) if sz else 0
+                big_table.add_row(str(rel), str(kb))
+
+            header = Panel.fit(f"Total files: [bold]{total}[/bold]", title="Repository summary", border_style="bright_blue")
+            console.print(header)
+            console.print(dir_table)
+            console.print(ext_table)
+            if sized:
+                console.print(big_table)
+
+            # If registry is available, show agents in a table
             try:
                 agents = REG.list_agents()
                 if agents:
-                    console.print("[bold]Registered agents:[/]")
+                    agents_table = Table(title="Registered agents", box=box.SIMPLE_HEAVY)
+                    agents_table.add_column("Name", style="cyan")
+                    agents_table.add_column("Type", style="magenta")
+                    agents_table.add_column("Model", style="yellow")
+                    agents_table.add_column("Path", style="green")
                     for a in agents:
-                        console.print(f" - {a.get('name')} ({a.get('type', '-')}) -> {a.get('path', '-')}")
+                        agents_table.add_row(a.get("name","-"), a.get("type","-"), a.get("model","-"), a.get("path","-"))
+                    console.print(agents_table)
             except Exception:
                 pass
+
+            # Targeted README.md explanation if requested
+            if "readme" in lower:
+                readme = ROOT / "README.md"
+                if readme.exists():
+                    try:
+                        text = readme.read_text(encoding="utf-8", errors="ignore")
+                        lines = text.splitlines()
+                        # Extract headings and bullet stats
+                        headings = [ln.strip() for ln in lines if ln.strip().startswith("#")]
+                        bullets = [ln for ln in lines if ln.strip().startswith(("- ", "* "))]
+                        code_fences = sum(1 for ln in lines if ln.strip().startswith("```") ) // 2
+                        # Show first heading and key sections
+                        sect_table = Table(title="README overview", box=box.SIMPLE_HEAVY)
+                        sect_table.add_column("Metric", style="cyan")
+                        sect_table.add_column("Value", style="magenta")
+                        first_h = headings[0] if headings else "(no title)"
+                        sect_table.add_row("Title", first_h.lstrip("# "))
+                        sect_table.add_row("Sections", str(len(headings)))
+                        sect_table.add_row("Bullets", str(len(bullets)))
+                        sect_table.add_row("Code blocks", str(code_fences))
+                        console.print(sect_table)
+
+                        # Show first few non-empty lines as a preview
+                        preview = [ln for ln in lines if ln.strip()][:12]
+                        console.print(Panel("\n".join(preview), title="README.md preview", border_style="bright_black"))
+                    except Exception as e:
+                        console.print(f"[yellow]Could not parse README.md:[/] {e}")
+                else:
+                    console.print("[yellow]README.md not found at project root.[/]")
+
             raise typer.Exit()
 
         console.print('[yellow]Could not infer an action. Tip: try "replace \'old\' with \'new\'".[/yellow]')
