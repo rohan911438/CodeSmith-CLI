@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+.codesmith/
+agents/*/venv/
+*.pyc
+.env
+.env.*

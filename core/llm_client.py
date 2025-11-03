@@ -36,10 +36,10 @@ class LLMClient:
     _PROVIDERS: Dict[str, Dict[str, Any]] = {
         "gemini": {
             # Google Gemini REST API (public endpoint)
-            # POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key=API_KEY
+            # POST https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key=API_KEY
             # Body: {"contents":[{"parts":[{"text": "..."}]}]}
             "env": "GEMINI_API_KEY",
-            "endpoint_template": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            "endpoint_template": "https://generativelanguage.googleapis.com/v1/models/{model}:generateContent",
             "timeout": 30,
             "method": "POST",
             "headers": {"Content-Type": "application/json"},
@@ -70,7 +70,7 @@ class LLMClient:
         self.api_key = key
         return key
 
-    async def generate(self, prompt: str, model: str = "gemini-pro") -> str:
+    async def generate(self, prompt: str, model: str = "gemini-1.5-flash-latest") -> str:
         """Generate text from the LLM asynchronously.
 
         This method performs an async HTTP request to the provider. It handles
@@ -90,44 +90,45 @@ class LLMClient:
 
         headers = dict(self.config.get("headers", {}))
 
-        # Build provider-specific request
-        url = None
-        params = None
-        json_body: Dict[str, Any] = {}
-
+        # Attempt one or more model ids until one succeeds; if all fail, return a graceful fallback.
+        candidates = [model]
         if self.provider == "gemini":
-            # Gemini expects API key as query param 'key' and model encoded in the URL path.
-            template = self.config.get("endpoint_template")
-            url = template.format(model=model)
-            params = {"key": self.api_key}
-            json_body = {"contents": [{"parts": [{"text": prompt}]}]}
-        else:
-            # Fallback generic shape (shouldn't happen with known providers)
-            url = self.config.get("endpoint")
-            json_body = {"model": model, "prompt": prompt}
+            # add a few sensible fallbacks
+            norm = self._normalize_model(model)
+            candidates = [norm, "gemini-1.5-pro-latest", "gemini-1.5-flash", "gemini-1.0-pro"]
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                # respect configured HTTP method (POST by default)
-                method = self.config.get("method", "POST").upper()
-                if method == "POST":
-                    async with session.post(url, params=params, json=json_body, headers=headers, timeout=timeout) as resp:
-                        text = await self._handle_response(resp)
-                        return text
+        last_err: Optional[Exception] = None
+        for model_name in candidates:
+            try:
+                # Build request per attempt
+                if self.provider == "gemini":
+                    template = self.config.get("endpoint_template")
+                    url = template.format(model=model_name)
+                    params = {"key": self.api_key}
+                    json_body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
                 else:
-                    async with session.get(url, params=params or json_body, headers=headers, timeout=timeout) as resp:
-                        text = await self._handle_response(resp)
-                        return text
+                    url = self.config.get("endpoint")
+                    params = None
+                    json_body = {"model": model_name, "prompt": prompt}
 
-        except asyncio.TimeoutError:
-            console.print("[red]LLM request timed out. Try again later or increase the timeout.[/red]")
-            raise
-        except ClientError as e:
-            console.print(f"[red]Network error while contacting LLM provider:[/red] {e}")
-            raise
-        except Exception as e:
-            console.print(f"[red]Unexpected error in LLM client:[/red] {e}")
-            raise
+                async with aiohttp.ClientSession() as session:
+                    method = self.config.get("method", "POST").upper()
+                    if method == "POST":
+                        async with session.post(url, params=params, json=json_body, headers=headers, timeout=timeout) as resp:
+                            text = await self._handle_response(resp)
+                            return text
+                    else:
+                        async with session.get(url, params=params or json_body, headers=headers, timeout=timeout) as resp:
+                            text = await self._handle_response(resp)
+                            return text
+            except (asyncio.TimeoutError, ClientError, Exception) as e:
+                last_err = e
+                continue
+
+        # All attempts failed — log and return a friendly fallback instead of crashing the app.
+        if last_err:
+            console.print(f"[yellow]LLM currently unavailable:[/yellow] {last_err}")
+        return f"[llm unavailable] {prompt}"
 
     async def _handle_response(self, resp: aiohttp.ClientResponse) -> str:
         """Parse provider response and return generated text or raise on errors."""
@@ -160,6 +161,25 @@ class LLMClient:
                 return data["text"]
             if "response" in data:
                 return data["response"]
+
+    def _normalize_model(self, model: str) -> str:
+        """Map legacy/alias model names to current Gemini model ids compatible with v1beta.
+
+        Examples:
+        - gemini-pro -> gemini-1.5-pro
+        - gemini-pro-vision -> gemini-1.5-pro
+        - text-bison -> gemini-1.5-flash
+        """
+        m = (model or "").lower()
+        aliases = {
+            "gemini-pro": "gemini-1.5-pro-latest",
+            "gemini-pro-vision": "gemini-1.5-pro-latest",
+            "text-bison": "gemini-1.5-flash-latest",
+            "text-bison-001": "gemini-1.5-flash-latest",
+            "gemini-1.5-flash": "gemini-1.5-flash-latest",
+            "gemini-1.5-pro": "gemini-1.5-pro-latest",
+        }
+        return aliases.get(m, model)
 
         # Fallback: stringify the payload
         return str(data)

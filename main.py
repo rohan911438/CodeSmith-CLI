@@ -10,6 +10,9 @@ import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
+from dotenv import load_dotenv
+
+from core.llm_client import LLMClient
 
 from core.agent_manager import AgentManager
 from core.registry import Registry
@@ -22,6 +25,9 @@ ROOT = Path.cwd()
 REG = Registry()
 MANAGER = AgentManager(registry=REG)
 RUNTIME = Runtime(registry=REG)
+
+# Load environment variables from .env if present
+load_dotenv()
 
 
 @app.command()
@@ -94,16 +100,29 @@ def chat(
                 console.print("Goodbye.")
                 break
 
+            # First try the local agent endpoint
             try:
                 resp = client.post(url, json={"prompt": prompt, "agent": agent})
                 if resp.status_code == 200:
                     data = resp.json()
                     console.print("[bold green]Agent:[/]")
                     console.print(data.get("response") or data)
-                else:
-                    console.print(f"[red]Error ({resp.status_code}): {resp.text}")
+                    continue
+            except Exception:
+                pass
+
+            # Fallback: use LLMClient directly (no server required)
+            try:
+                llm = LLMClient("gemini")
+                text = typer.run_async(llm.generate(prompt)) if hasattr(typer, "run_async") else None
+                if text is None:
+                    # manual asyncio fallback to avoid introducing an event loop here
+                    import asyncio
+                    text = asyncio.run(llm.generate(prompt))
+                console.print("[bold green]Agent (LLM):[/]")
+                console.print(text)
             except Exception as e:
-                console.print(f"[red]Request failed: {e}")
+                console.print(f"[red]LLM fallback failed:[/] {e}")
 
 
 @app.command()
