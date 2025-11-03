@@ -181,8 +181,37 @@ class LLMClient:
         }
         return aliases.get(m, model)
 
-        # Fallback: stringify the payload
-        return str(data)
+    async def list_models(self, page_size: int = 50) -> list[str]:
+        """List available models for the provider. Returns a list of model ids.
+
+        For Gemini, queries v1/models with the API key as `?key=...`.
+        """
+        # Ensure key
+        if not self.api_key:
+            self.load_api_key()
+
+        if self.provider != "gemini":
+            return []
+
+        url = "https://generativelanguage.googleapis.com/v1/models"
+        params = {"key": self.api_key, "pageSize": page_size}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=20) as resp:
+                    status = resp.status
+                    data = await resp.json()
+                    if status >= 400:
+                        raise RuntimeError(data)
+                    models = []
+                    for m in data.get("models", []):
+                        # model name is like "models/gemini-1.5-pro-latest"
+                        name = m.get("name")
+                        if isinstance(name, str) and name.startswith("models/"):
+                            models.append(name.split("/", 1)[1])
+                    return models
+        except Exception as e:
+            console.print(f"[yellow]Failed to list models:[/] {e}")
+            return []
 
 
 __all__ = ["LLMClient"]

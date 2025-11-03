@@ -18,9 +18,17 @@ from core.llm_client import LLMClient
 from core.agent_manager import AgentManager
 from core.registry import Registry
 from core.runtime import Runtime
+from core.workbench import (
+    scan_repo,
+    parse_intent,
+    compute_replacements,
+    apply_replacements,
+    preview_replacement_diffs,
+)
 
 app = typer.Typer()
 llm_app = typer.Typer(help="LLM utilities")
+dev_app = typer.Typer(help="Interactive developer mode (repo-aware)")
 console = Console()
 
 ROOT = Path.cwd()
@@ -166,6 +174,82 @@ def llm_test(
 
 
 app.add_typer(llm_app, name="llm")
+
+
+@dev_app.command("run")
+def dev_run():
+    """Start an interactive terminal session that:
+    - asks for your intent (prompt),
+    - requests permission to scan the repo,
+    - attempts to interpret a 'replace "a" with "b"' instruction,
+    - previews the change set and asks for confirmation,
+    - applies edits locally.
+
+    This is a deterministic, safe subset of a full AI refactor. It keeps the UX similar
+    to Gemini CLI while avoiding accidental destructive changes.
+    """
+    console.rule("CodeSmith Dev Mode")
+    prompt = typer.prompt("Describe what to do (e.g., replace 'foo' with 'bar')")
+
+    allow_scan = typer.confirm("Allow CodeSmith to scan your repository for candidate files?", default=True)
+    if not allow_scan:
+        console.print("[yellow]Scan aborted by user.[/yellow]")
+        raise typer.Exit()
+
+    files = scan_repo(ROOT)
+    console.print(f"[cyan]{len(files)}[/cyan] files scanned.")
+
+    plan = parse_intent(prompt)
+    if not plan:
+        console.print('[yellow]Could not infer an action. Tip: try "replace \'old\' with \'new\'".[/yellow]')
+        raise typer.Exit(code=2)
+
+    total, per_file = compute_replacements(files, plan.search, plan.replace)
+    if total == 0:
+        console.print(f"[yellow]No occurrences of '{plan.search}' found in repo.[/yellow]")
+        raise typer.Exit()
+
+    console.print(f"Will replace [bold]{total}[/] occurrence(s) across [bold]{len(per_file)}[/] file(s).")
+    # Show diff previews for the first few files to increase confidence
+    diffs = preview_replacement_diffs(per_file, plan.search, plan.replace, limit=5)
+    if diffs:
+        console.print("\n[bold]Patch preview (first few files):[/]\n")
+        for p, d in diffs.items():
+            console.print(f"[cyan]{p}[/]")
+            console.print(d or "(no visible diff)")
+            console.print("")
+
+    if not typer.confirm("Apply these changes?", default=False):
+        console.print("[yellow]No changes applied.[/yellow]")
+        raise typer.Exit()
+
+    changed = apply_replacements(per_file, plan.search, plan.replace)
+    console.print(f"[green]Applied changes to {changed} file(s).[/green]")
+
+
+app.add_typer(dev_app, name="dev")
+
+
+@llm_app.command("list-models")
+def llm_list_models(json_output: bool = typer.Option(False, "--json", help="Output as JSON list")):
+    """List available LLM models for the configured provider (Gemini)."""
+    try:
+        client = LLMClient("gemini")
+        models = asyncio.run(client.list_models())
+        if json_output:
+            typer.echo(json.dumps(models, indent=2))
+            return
+        if not models:
+            console.print("[yellow]No models returned. Ensure GEMINI_API_KEY is set and has access.[/]")
+            return
+        table = Table(title="Available Models")
+        table.add_column("#", justify="right")
+        table.add_column("Model ID")
+        for i, m in enumerate(models, 1):
+            table.add_row(str(i), m)
+        console.print(table)
+    except Exception as e:
+        console.print(f"[red]Failed to list models:[/] {e}")
 
 def main():
     app(prog_name="codesmith")

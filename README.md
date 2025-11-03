@@ -50,7 +50,7 @@ You’ve just built and talked to your own Copilot.
 
 ## 🧠 LLM Integration (Gemini)
 
-We ship an async LLM client (`core/llm_client.py`) that calls the official Google Gemini REST API (v1beta `generateContent`).
+We ship an async LLM client (`core/llm_client.py`) that calls the official Google Gemini REST API (v1 `generateContent`).
 
 Environment variable required:
 
@@ -108,6 +108,23 @@ All commands run via `python main.py` from the project root.
    ```cmd
    python main.py compose --agents a,b,c --name mychain
    ```
+
+- LLM utilities
+   - Send a quick prompt to Gemini
+      ```cmd
+      python main.py llm test "Explain recursion in Python" --model gemini-1.5-flash-latest
+      ```
+   - List available models on your key
+      ```cmd
+      python main.py llm list-models
+      ```
+
+- Dev mode (safe repo-aware edits)
+   - Start interactive replace flow with diff preview
+      ```cmd
+      python main.py dev run
+      ```
+      You can type an instruction like: replace 'foo' with 'bar'. CodeSmith will scan your repo, show a patch preview for a few files, and ask for confirmation before applying changes.
 
 ## 🧪 Testing
 
