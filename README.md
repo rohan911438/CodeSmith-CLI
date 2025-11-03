@@ -1,12 +1,14 @@
 # CodeSmith CLI — The AI Agent Factory
 
+<img width="512" height="512" alt="Gemini_Generated_Image_c44k5uc44k5uc44k" src="https://github.com/user-attachments/assets/33f9f4ee-a267-4db6-8a05-6f1e4822b4d6" />
+
+
 Create, run, and manage your own AI copilots — directly from your terminal. No Docker. No cloud setup. Instant local magic.
 
-Repository: https://github.com/rohan911438/CLI
-
+Repository: https://github.com/rohan911438/CodeSmith-CLI
 Team: BROTHERHOOD
 - Rohan Kumar (@rohan911438)
-- Ritav PaUl
+- Ritav Paul
 
 ---
 
