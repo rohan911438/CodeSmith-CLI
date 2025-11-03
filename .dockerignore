@@ -1,0 +1,15 @@
+__pycache__/
+.venv/
+.codesmith/backups/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swm
+*.swo
+*.DS_Store
+.env
+.git
+.github
+.vscode
+node_modules/

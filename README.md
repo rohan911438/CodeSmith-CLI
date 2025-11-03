@@ -202,6 +202,47 @@ curl -s -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -
 
 ---
 
+## 🚢 Deploy
+
+Pick what fits your demo:
+
+- Docker (recommended for portability)
+   1) Build
+       ```bash
+       docker build -t codesmith:latest .
+       ```
+   2) Run (default agent: apitest)
+       ```bash
+       docker run -p 8000:8000 -e PORT=8000 -e AGENT_NAME=apitest codesmith:latest
+       ```
+   3) Open http://127.0.0.1:8000/
+
+- Render / Railway / Heroku-like
+   - This repo includes a flexible `Procfile` (select agent via `AGENT_NAME`, defaults to `apitest`):
+      ```
+      web: sh -c "python -m uvicorn agents.${AGENT_NAME:-apitest}.main:app --host 0.0.0.0 --port $PORT"
+      ```
+   - Set environment variables:
+      - `AGENT_NAME` (optional) e.g., `apitest` or `mcptest`
+      - `GEMINI_API_KEY` (optional)
+   - On Heroku, `runtime.txt` pins Python (e.g., `python-3.11.9`)
+   - Deploy; the platform injects `$PORT` and runs the web process
+
+- Azure App Service (Linux)
+   - Runtime: Python 3.11
+   - Startup command:
+      ```
+      python -m pip install -r requirements.txt && python -m uvicorn agents.apitest.main:app --host 0.0.0.0 --port $PORT
+      ```
+   - App settings: `WEBSITES_PORT=8000`, optionally `GEMINI_API_KEY`
+   - Health check: `/`
+
+Notes
+- To run a different agent, set `AGENT_NAME=<your_agent>` in Docker or replace `apitest` in the command.
+- This is a local‑first project; LLM calls gracefully fall back if `GEMINI_API_KEY` isn’t set.
+
+---
+
 ## 🏗️ Architecture overview
 
 ```

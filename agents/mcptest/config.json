@@ -1,7 +1,7 @@
 {
   "name": "mcptest",
   "type": "mcp",
-  "description": "MCP test",
+  "description": "MCP replace dryrun",
   "model": "-",
   "path": "C:\\Users\\ABHINAV KUMAR\\Desktop\\CLI\\agents\\mcptest"
 }
