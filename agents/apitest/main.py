@@ -4,7 +4,7 @@ from pathlib import Path
 import difflib
 
 from core.workbench import scan_repo, parse_intent, compute_replacements, apply_replacements, preview_replacement_diffs
-from core.dev_actions import add_file as dev_add_file
+from core.dev_actions import add_file as dev_add_file, backup_files as dev_backup_files
 
 app = FastAPI()
 
@@ -52,6 +52,11 @@ async def chat(req: Request):
                     "hint": "Resend with apply=true to apply changes."
                 }
             }
+        # Backup files before applying replacements
+        try:
+            dev_backup_files(list(per_file.keys()))
+        except Exception:
+            pass
         changed = apply_replacements(per_file, plan.search, plan.replace)
         return {
             "result": {

@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import httpx
 import typer
@@ -316,8 +316,8 @@ def dev_move_file_cmd(
 @dev_app.command("edit-json")
 def dev_edit_json_cmd(
     path: str = typer.Argument(..., help="JSON file to edit"),
-    set: Optional[list[str]] = typer.Option(None, "--set", help="key=value (value parsed as JSON if possible)", multiple=True),
-    delete: Optional[list[str]] = typer.Option(None, "--delete", help="key to remove", multiple=True),
+    set: List[str] = typer.Option([], "--set", help="key=value (value parsed as JSON if possible)"),
+    delete: List[str] = typer.Option([], "--delete", help="key to remove"),
     backup: bool = typer.Option(True, "--backup/--no-backup", help="Backup file before editing"),
 ):
     p = ROOT / path
@@ -371,8 +371,8 @@ def dev_edit_json_cmd(
 @dev_app.command("edit-yaml")
 def dev_edit_yaml_cmd(
     path: str = typer.Argument(..., help="YAML file to edit"),
-    set: Optional[list[str]] = typer.Option(None, "--set", help="key=value (value parsed as YAML if possible)", multiple=True),
-    delete: Optional[list[str]] = typer.Option(None, "--delete", help="key to remove", multiple=True),
+    set: List[str] = typer.Option([], "--set", help="key=value (value parsed as YAML if possible)"),
+    delete: List[str] = typer.Option([], "--delete", help="key to remove"),
     backup: bool = typer.Option(True, "--backup/--no-backup", help="Backup file before editing"),
 ):
     p = ROOT / path
