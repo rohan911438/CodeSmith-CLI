@@ -126,6 +126,34 @@ All commands run via `python main.py` from the project root.
       ```
       You can type an instruction like: replace 'foo' with 'bar'. CodeSmith will scan your repo, show a patch preview for a few files, and ask for confirmation before applying changes.
 
+   - Structured edits (with backup + diff preview)
+      - Create a file:
+         ```cmd
+         python main.py dev add-file new_folder\hello.txt --content "Hello world"
+         ```
+         If you omit --content, you’ll be prompted and see a preview before creation.
+
+      - Move a file (backs up by default):
+         ```cmd
+         python main.py dev move-file new_folder\hello.txt new_folder\notes\hello.txt
+         ```
+
+      - Edit JSON with key paths:
+         ```cmd
+         python main.py dev edit-json package.json --set name="\"my-app\"" --set version="\"0.1.0\"" --delete deprecatedField
+         ```
+         Values for --set are parsed as JSON when possible (so wrap strings in quotes). A unified diff is shown before applying.
+
+      - Edit YAML (requires PyYAML, included via uvicorn[standard]):
+         ```cmd
+         python main.py dev edit-yaml config.yaml --set app.name="\"codesmith\"" --delete old.setting
+         ```
+
+      - Rollback from a backup folder:
+         ```cmd
+         python main.py dev rollback .codesmith\backups\20251103-120215
+         ```
+
 ## 🧪 Testing
 
 We include a minimal endpoint test runner that spins up agents in-process and exercises their HTTP endpoints using FastAPI’s TestClient.

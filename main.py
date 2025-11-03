@@ -25,6 +25,14 @@ from core.workbench import (
     apply_replacements,
     preview_replacement_diffs,
 )
+from core.dev_actions import (
+    add_file as dev_add_file,
+    move_file as dev_move_file,
+    edit_json_file as dev_edit_json_file,
+    edit_yaml_file as dev_edit_yaml_file,
+    backup_files as dev_backup_files,
+    restore_backup as dev_restore_backup,
+)
 
 app = typer.Typer()
 llm_app = typer.Typer(help="LLM utilities")
@@ -250,6 +258,182 @@ def llm_list_models(json_output: bool = typer.Option(False, "--json", help="Outp
         console.print(table)
     except Exception as e:
         console.print(f"[red]Failed to list models:[/] {e}")
+
+
+# ===== Additional Dev Mode Commands: structured edits =====
+
+@dev_app.command("add-file")
+def dev_add_file_cmd(
+    path: str = typer.Argument(..., help="Path to create (relative to project root)"),
+    content: Optional[str] = typer.Option(None, "--content", help="File content; if omitted, you'll be prompted"),
+):
+    """Create a new file with preview and confirmation."""
+    p = ROOT / path
+    if p.exists():
+        console.print(f"[yellow]File already exists:[/] {p}")
+        raise typer.Exit(code=2)
+    if content is None:
+        console.print("Enter file content, end with an empty line:")
+        lines = []
+        while True:
+            line = typer.prompt("")
+            if line == "":
+                break
+            lines.append(line)
+        content = "\n".join(lines) + ("\n" if lines else "")
+    console.rule("Preview")
+    console.print(f"[cyan]{p}[/]")
+    console.print(content or "(empty)")
+    if not typer.confirm("Create this file?", default=True):
+        console.print("[yellow]Aborted.[/]")
+        raise typer.Exit()
+    dev_add_file(p, content or "")
+    console.print(f"[green]Created:[/] {p}")
+
+
+@dev_app.command("move-file")
+def dev_move_file_cmd(
+    src: str = typer.Argument(..., help="Source path"),
+    dst: str = typer.Argument(..., help="Destination path"),
+    backup: bool = typer.Option(True, "--backup/--no-backup", help="Backup the source before moving"),
+):
+    src_p = ROOT / src
+    dst_p = ROOT / dst
+    if not src_p.exists():
+        console.print(f"[red]Source not found:[/] {src_p}")
+        raise typer.Exit(code=2)
+    console.print(f"Move [cyan]{src_p}[/] -> [cyan]{dst_p}[/]")
+    if backup:
+        bdir = dev_backup_files([src_p])
+        console.print(f"Backup saved to: [magenta]{bdir}[/]")
+    if not typer.confirm("Proceed with move?", default=True):
+        console.print("[yellow]Aborted.[/]")
+        raise typer.Exit()
+    dev_move_file(src_p, dst_p)
+    console.print("[green]Moved.[/]")
+
+
+@dev_app.command("edit-json")
+def dev_edit_json_cmd(
+    path: str = typer.Argument(..., help="JSON file to edit"),
+    set: Optional[list[str]] = typer.Option(None, "--set", help="key=value (value parsed as JSON if possible)", multiple=True),
+    delete: Optional[list[str]] = typer.Option(None, "--delete", help="key to remove", multiple=True),
+    backup: bool = typer.Option(True, "--backup/--no-backup", help="Backup file before editing"),
+):
+    p = ROOT / path
+    before = p.read_text(encoding="utf-8") if p.exists() else "{}\n"
+    changes: list[dict] = []
+    for item in (set or []):
+        if "=" not in item:
+            console.print(f"[yellow]Ignoring malformed --set:{item}[/]")
+            continue
+        k, v = item.split("=", 1)
+        try:
+            v_parsed = json.loads(v)
+        except Exception:
+            v_parsed = v
+        changes.append({"op": "set", "key": k, "value": v_parsed})
+    for k in (delete or []):
+        changes.append({"op": "delete", "key": k})
+
+    # Preview
+    tmp_path = p if p.exists() else p
+    if backup and p.exists():
+        bdir = dev_backup_files([p])
+        console.print(f"Backup saved to: [magenta]{bdir}[/]")
+    # Apply to a temp data structure for diff preview
+    try:
+        before_obj = json.loads(before)
+    except Exception:
+        before_obj = {}
+    # simulate
+    sim_path = ROOT / ".codesmith" / "_sim.json"
+    sim_path.write_text(json.dumps(before_obj, indent=2), encoding="utf-8")
+    dev_edit_json_file(sim_path, changes)
+    after = sim_path.read_text(encoding="utf-8")
+    sim_path.unlink(missing_ok=True)
+
+    import difflib
+    diff = difflib.unified_diff(
+        before.splitlines(keepends=True),
+        after.splitlines(keepends=True),
+        fromfile=str(p), tofile=f"{p} (after)")
+    console.rule("Preview diff")
+    console.print("".join(diff) or "(no changes)")
+    if not typer.confirm("Apply these changes?", default=True):
+        console.print("[yellow]Aborted.[/]")
+        raise typer.Exit()
+    # Apply for real
+    dev_edit_json_file(p, changes)
+    console.print("[green]Applied JSON edits.[/]")
+
+
+@dev_app.command("edit-yaml")
+def dev_edit_yaml_cmd(
+    path: str = typer.Argument(..., help="YAML file to edit"),
+    set: Optional[list[str]] = typer.Option(None, "--set", help="key=value (value parsed as YAML if possible)", multiple=True),
+    delete: Optional[list[str]] = typer.Option(None, "--delete", help="key to remove", multiple=True),
+    backup: bool = typer.Option(True, "--backup/--no-backup", help="Backup file before editing"),
+):
+    p = ROOT / path
+    try:
+        import yaml  # type: ignore
+    except Exception:
+        console.print("[red]PyYAML not installed. Cannot edit YAML files.[/]")
+        raise typer.Exit(code=2)
+    before = p.read_text(encoding="utf-8") if p.exists() else "{}\n"
+    changes: list[dict] = []
+    for item in (set or []):
+        if "=" not in item:
+            console.print(f"[yellow]Ignoring malformed --set:{item}[/]")
+            continue
+        k, v = item.split("=", 1)
+        try:
+            v_parsed = yaml.safe_load(v)
+        except Exception:
+            v_parsed = v
+        changes.append({"op": "set", "key": k, "value": v_parsed})
+    for k in (delete or []):
+        changes.append({"op": "delete", "key": k})
+
+    if backup and p.exists():
+        bdir = dev_backup_files([p])
+        console.print(f"Backup saved to: [magenta]{bdir}[/]")
+
+    # simulate for diff
+    try:
+        before_obj = yaml.safe_load(before) or {}
+    except Exception:
+        before_obj = {}
+    sim_path = ROOT / ".codesmith" / "_sim.yaml"
+    sim_path.write_text(yaml.safe_dump(before_obj, sort_keys=False), encoding="utf-8")
+    dev_edit_yaml_file(sim_path, changes)
+    after = sim_path.read_text(encoding="utf-8")
+    sim_path.unlink(missing_ok=True)
+
+    import difflib
+    diff = difflib.unified_diff(
+        before.splitlines(keepends=True),
+        after.splitlines(keepends=True),
+        fromfile=str(p), tofile=f"{p} (after)")
+    console.rule("Preview diff")
+    console.print("".join(diff) or "(no changes)")
+    if not typer.confirm("Apply these changes?", default=True):
+        console.print("[yellow]Aborted.[/]")
+        raise typer.Exit()
+    dev_edit_yaml_file(p, changes)
+    console.print("[green]Applied YAML edits.[/]")
+
+
+@dev_app.command("rollback")
+def dev_rollback_cmd(
+    backup_dir: str = typer.Argument(..., help="Path to a backup directory under .codesmith/backups"),
+):
+    bdir = Path(backup_dir)
+    if not bdir.is_absolute():
+        bdir = ROOT / bdir
+    restored = dev_restore_backup(bdir)
+    console.print(f"[green]Restored {restored} file(s) from backup:[/] {bdir}")
 
 def main():
     app(prog_name="codesmith")

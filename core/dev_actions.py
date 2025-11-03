@@ -37,6 +37,25 @@ def backup_files(files: List[Path]) -> Path:
     return dest
 
 
+def restore_backup(backup_dir: Path) -> int:
+    """Restore files from a backup directory created by backup_files.
+
+    Returns the number of files restored.
+    """
+    backup_dir = backup_dir.resolve()
+    if not backup_dir.exists() or not backup_dir.is_dir():
+        raise FileNotFoundError(f"Backup not found: {backup_dir}")
+    restored = 0
+    for src in backup_dir.rglob("*"):
+        if src.is_file():
+            rel = src.relative_to(backup_dir)
+            dst = Path.cwd() / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            restored += 1
+    return restored
+
+
 def add_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
