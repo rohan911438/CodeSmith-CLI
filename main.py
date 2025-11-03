@@ -209,6 +209,37 @@ def dev_run():
 
     plan = parse_intent(prompt)
     if not plan:
+        # Friendly fallback: summarize repository files when user asks to "explain".
+        lower = prompt.strip().lower()
+        if any(k in lower for k in ("explain", "what are the files", "list files", "show files")):
+            files = scan_repo(ROOT)
+            total = len(files)
+            from collections import Counter
+            exts = Counter([p.suffix or "<no-ext>" for p in files])
+            # Determine top-level directories
+            top_dirs = Counter([(p.relative_to(ROOT).parts[0] if len(p.relative_to(ROOT).parts) > 1 else "<root>") for p in files])
+
+            console.rule("Repository summary")
+            console.print(f"[bold]Total files:[/] {total}")
+            if top_dirs:
+                console.print("[bold]Top-level dirs:[/]")
+                for name, cnt in top_dirs.most_common(10):
+                    console.print(f" - {name}: {cnt}")
+            if exts:
+                console.print("[bold]By extension:[/]")
+                for ext, cnt in exts.most_common(10):
+                    console.print(f" - {ext}: {cnt}")
+            # If registry is available, show agents
+            try:
+                agents = REG.list_agents()
+                if agents:
+                    console.print("[bold]Registered agents:[/]")
+                    for a in agents:
+                        console.print(f" - {a.get('name')} ({a.get('type', '-')}) -> {a.get('path', '-')}")
+            except Exception:
+                pass
+            raise typer.Exit()
+
         console.print('[yellow]Could not infer an action. Tip: try "replace \'old\' with \'new\'".[/yellow]')
         raise typer.Exit(code=2)
 
