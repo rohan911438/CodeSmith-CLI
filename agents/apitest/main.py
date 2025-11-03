@@ -1,12 +1,16 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from pathlib import Path
+from typing import Optional, Dict, Any
 import difflib
 
 from core.workbench import scan_repo, parse_intent, compute_replacements, apply_replacements, preview_replacement_diffs
 from core.dev_actions import add_file as dev_add_file, backup_files as dev_backup_files
 
 app = FastAPI()
+
+# Simple in-memory pending confirmation state
+PENDING_ACTION: Optional[Dict[str, Any]] = None
 
 
 class ChatRequest(BaseModel):
@@ -32,6 +36,38 @@ async def chat(req: Request):
     prompt = body.get("prompt", "")
     apply = bool(body.get("apply", False))
 
+    global PENDING_ACTION
+    lower = prompt.strip().lower()
+    if lower in {"yes", "y", "no", "n"}:
+        if not PENDING_ACTION:
+            return {"result": {"applied": False, "note": "No pending action to confirm."}}
+        confirm_yes = lower in {"yes", "y"}
+        action = PENDING_ACTION
+        PENDING_ACTION = None
+        if not confirm_yes:
+            return {"result": {"applied": False, "note": "Cancelled by user."}}
+        # Apply stored action
+        if action.get("type") == "replace":
+            search = action["search"]
+            replace = action["replace"]
+            root = Path.cwd()
+            files = scan_repo(root)
+            _, per_file = compute_replacements(files, search, replace)
+            try:
+                dev_backup_files(list(per_file.keys()))
+            except Exception:
+                pass
+            changed = apply_replacements(per_file, search, replace)
+            return {"result": {"applied": True, "changedFiles": changed}}
+        if action.get("type") == "add-file":
+            path = Path(action["path"])  # absolute path stored
+            content = action.get("content", "")
+            if path.exists():
+                return {"result": {"applied": False, "note": f"File already exists: {path}"}}
+            dev_add_file(path, content)
+            return {"result": {"applied": True, "created": str(path)}}
+        return {"result": {"applied": False, "note": "Unknown pending action type."}}
+
     # Dev flow: try simple deterministic actions first
     # 1) Replace 'a' with 'b'
     plan = parse_intent(prompt)
@@ -41,6 +77,8 @@ async def chat(req: Request):
         total, per_file = compute_replacements(files, plan.search, plan.replace)
         diffs = preview_replacement_diffs(per_file, plan.search, plan.replace, limit=5)
         if not apply:
+            # store pending confirmation
+            PENDING_ACTION = {"type": "replace", "search": plan.search, "replace": plan.replace}
             return {
                 "dev": {
                     "action": "replace",
@@ -49,7 +87,7 @@ async def chat(req: Request):
                     "matches": total,
                     "files": len(per_file),
                     "diffPreview": {str(k): v for k, v in diffs.items()},
-                    "hint": "Resend with apply=true to apply changes."
+                    "hint": "Reply 'yes' to apply or 'no' to cancel."
                 }
             }
         # Backup files before applying replacements
@@ -91,12 +129,13 @@ async def chat(req: Request):
         )
         if not apply:
             preview = content.splitlines()[:20]
+            PENDING_ACTION = {"type": "add-file", "path": str(path), "content": content}
             return {
                 "dev": {
                     "action": "add-file",
                     "path": str(path),
                     "contentPreview": "\n".join(preview),
-                    "hint": "Resend with apply=true to create the file."
+                    "hint": "Reply 'yes' to create or 'no' to cancel."
                 }
             }
         if path.exists():
