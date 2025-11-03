@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,7 @@ from core.registry import Registry
 from core.runtime import Runtime
 
 app = typer.Typer()
+llm_app = typer.Typer(help="LLM utilities")
 console = Console()
 
 ROOT = Path.cwd()
@@ -147,6 +149,23 @@ def compose(agents: str = typer.Option(..., help="Comma-separated agent names to
     MANAGER.compose_agents(agent_list, composed_name=name)
     typer.secho(f"Composed agent '{name}' created.", fg="green")
 
+
+@llm_app.command("test")
+def llm_test(
+    prompt: str = typer.Argument(..., help="Prompt text to send to the LLM"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="LLM model id, e.g. gemini-1.5-pro-latest"),
+):
+    """Send a single prompt to the configured LLM and print the response."""
+    try:
+        client = LLMClient("gemini")
+        text = asyncio.run(client.generate(prompt, model=model or "gemini-1.5-flash-latest"))
+        console.print("[bold green]LLM response:[/]")
+        console.print(text)
+    except Exception as e:
+        console.print(f"[red]LLM test failed:[/] {e}")
+
+
+app.add_typer(llm_app, name="llm")
 
 def main():
     app(prog_name="codesmith")
